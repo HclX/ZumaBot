@@ -64,10 +64,6 @@
             this.btnCapture.UseVisualStyleBackColor = true;
             this.btnCapture.Click += new System.EventHandler(this.btnCapture_Click);
             // 
-            // timerCapture
-            // 
-            this.timerCapture.Tick += new System.EventHandler(this.timerCapture_Tick);
-            // 
             // textLevelId
             // 
             this.textLevelId.Location = new System.Drawing.Point(47, 2);
@@ -119,7 +115,6 @@
             this.textBox1.ReadOnly = true;
             this.textBox1.Size = new System.Drawing.Size(257, 20);
             this.textBox1.TabIndex = 15;
-            this.textBox1.TextChanged += new System.EventHandler(this.textBox1_TextChanged);
             // 
             // btnBrowseDir
             // 
@@ -129,7 +124,6 @@
             this.btnBrowseDir.TabIndex = 16;
             this.btnBrowseDir.Text = "...";
             this.btnBrowseDir.UseVisualStyleBackColor = true;
-            this.btnBrowseDir.Click += new System.EventHandler(this.btnBrowseDir_Click);
             // 
             // label3
             // 

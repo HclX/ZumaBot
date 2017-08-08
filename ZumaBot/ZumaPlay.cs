@@ -1,29 +1,37 @@
 ﻿using System;
-using System.IO;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Runtime.InteropServices;
-using System.Linq;
-using System.Windows.Forms;
-using System.Threading;
 using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace Zuma
 {
-    public class GameInfo
-    {
-        private string _zumaDir;
+    public delegate void ScreenChangedEventHandler(Bitmap screenshot);
 
+    public interface IZumaGame
+    {
+        string GameDir { get; }
+
+        event ScreenChangedEventHandler ScreenChanged;
+
+        void ShootBall(Point XY);
+        void SwapBall();
+        void Click(Point XY);
+    }
+
+    public class GameRes
+    {
         public ImageData BallMask
         {
             get;
             private set;
         }
 
-        public GameInfo(string zumaDir)
+        public GameRes(string zumaDir)
         {
-            _zumaDir = zumaDir;
-            BallMask = ImageData.FromFile(Path.Combine(_zumaDir, "levels\\triangle\\ballmask.gif")).GrayScale().Threshold(0, 0, 0);
+            BallMask = ImageData.FromFile(Path.Combine(zumaDir, "levels\\triangle\\ballmask.gif")).GrayScale().Threshold(0, 0, 0);
         }
 
         public static readonly Rectangle LifeRect = new Rectangle(new Point(24, 0), new Size(80, 30));
@@ -33,215 +41,16 @@ namespace Zuma
         public static readonly Rectangle ScoreRect = new Rectangle(new Point(270, 0), new Size(94, 22));
 
         public static readonly Rectangle ZumaRect = new Rectangle(new Point(410, 6), new Size(64, 10));
-    }
 
-    public static class Game
-    {
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
+        public static readonly Point PlayXY = new Point(329, 454);
+        public static readonly Point AdvEnterXY = new Point(511, 109);
+        public static readonly Point AdvStartXY = new Point(602, 462);
 
-        [DllImport("user32.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
-        private static extern IntPtr GetDesktopWindow();
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT
-        {
-            public int X;
-            public int Y;
-        }
-
-        [DllImport("user32.dll")]
-        private static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetWindowRect(IntPtr hWnd, ref RECT rect);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetClientRect(IntPtr hWnd, ref RECT rect);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern bool SetForgroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr FindWindow(string className, string windowName);
-
-        [DllImport("user32.dll")]
-        private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
-
-        [DllImport("user32.dll")]
-        private static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
-
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-        [DllImport("user32.dll")]
-        private static extern void mouse_event(UInt32 dwFlags, UInt32 dx, UInt32 dy, UInt32 cButtons, IntPtr extraInfo);
-        private const UInt32 MOUSEEVENTF_LEFTDOWN = 0x02;
-        private const UInt32 MOUSEEVENTF_LEFTUP = 0x04;
-        private const UInt32 MOUSEEVENTF_RIGHTDOWN = 0x08;
-        private const UInt32 MOUSEEVENTF_RIGHTUP = 0x010;
-        private const UInt32 MOUSEEVENTF_MOVE = 0x0001;
-
-        private static void DoMouseLClick()
-        {
-            //perform click            
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
-        }
-
-        private static void DoMouseRClick()
-        {
-            //perform click            
-            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, IntPtr.Zero);
-            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, IntPtr.Zero);
-        }
-
-        private static IntPtr FindMainWnd()
-        {
-            IntPtr hwnd = GetForegroundWindow();
-
-            IntPtr hZumaWnd = FindWindow("MainWindow", "×æÂêºÀ»ªÍêÈ«°æ1.30");
-            if (!IsWindow(hZumaWnd))
-            {
-                System.Diagnostics.Debug.WriteLine("Zuma window not found!");
-                return IntPtr.Zero;
-            }
-
-            if (hZumaWnd != GetForegroundWindow())
-            {
-                System.Diagnostics.Debug.WriteLine("Zuma window not active!");
-                return IntPtr.Zero;
-            }
-
-            RECT r = new RECT();
-            GetClientRect(hZumaWnd, ref r);
-
-            if (r.Right != 640 || r.Bottom != 480)
-            {
-                System.Diagnostics.Debug.WriteLine("Zuma window size incorrect:{0}x{1}", r.Right, r.Bottom);
-                return IntPtr.Zero;
-            }
-
-            return hZumaWnd;
-        }
-
-        private static Bitmap CaptureScreen(IntPtr hwnd)
-        {
-            var r = new RECT();
-            GetWindowRect(hwnd, ref r);
-
-            if (r.Right == 0 && r.Bottom == 0)
-            {
-                // full screen
-                Bitmap bit = new Bitmap(r.Right, r.Bottom);
-                Graphics gs = Graphics.FromImage(bit);
-                gs.CopyFromScreen(new Point(0, 0), new Point(0, 0), bit.Size);
-
-                return bit;
-            }
-            else
-            {
-                GetClientRect(hwnd, ref r);
-                var bounds = new Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
-                var result = new Bitmap(bounds.Width, bounds.Height);
-
-                using (var graphics = Graphics.FromImage(result))
-                {
-                    IntPtr hdc = graphics.GetHdc();
-                    PrintWindow(hwnd, hdc, 1);
-                    graphics.ReleaseHdc(hdc);
-                }
-
-                return result;
-            }
-        }
-
-        private static IntPtr _hZumaWnd = IntPtr.Zero;
-        public static IntPtr MainWindow
-        {
-            get
-            {
-                if (!IsWindow(_hZumaWnd))
-                {
-                    _hZumaWnd = FindMainWnd();
-                }
-
-                return _hZumaWnd;
-            }
-        }
-
-        public static Bitmap Screenshot
-        {
-            get
-            {
-                var hwnd = MainWindow;
-
-                if (hwnd != IntPtr.Zero)
-                {
-                    return CaptureScreen(hwnd);
-                }
-                else
-                {
-                    return null;
-                }
-            }
-        }
-
-        public static bool Active
-        {
-            get
-            {
-                return MainWindow == GetForegroundWindow();
-            }
-        }
-
-        public static bool Shoot(Int32 x, Int32 y)
-        {
-            var hwnd = MainWindow;
-            if (hwnd != IntPtr.Zero)
-            {
-                POINT pt = new POINT() { X = x, Y = y };
-                ClientToScreen(hwnd, ref pt);
-                Cursor.Position = new Point(pt.X, pt.Y);
-
-                DoMouseLClick();
-                Thread.Sleep(500);
-
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        public static bool Swap()
-        {
-            var hwnd = MainWindow;
-            if (hwnd != IntPtr.Zero)
-            {
-                DoMouseRClick();
-                Thread.Sleep(200);
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
+        public static readonly Point ContinueXY = new Point(253, 328);
+        public static readonly Point StatsXY = new Point(332, 387);
+        public static readonly Point GetReadyXY = new Point(319, 186);
+        public static readonly Point StageEndXY = new Point(510, 418);
+        public static readonly Point GameOverXY = new Point(302, 351);
     }
 
     public struct Point3D
@@ -759,7 +568,7 @@ namespace Zuma
 
             for (int i = 0; i < this.rawData.Length; i++)
             {
-                s[i] = (byte)Math.Abs(this.rawData[i] - other.rawData[i]);
+                s[i] = (byte)Math.Abs((int)this.rawData[i] - (int)other.rawData[i]);
             }
 
             return new ImageData(this.Width, this.Height, s);
@@ -820,6 +629,13 @@ namespace Zuma
 
             return new ImageData(this.Width, this.Height, s);
         }
+
+        public ImageData Threshold(Color rgb)
+        {
+            return Threshold(rgb.R, rgb.G, rgb.B);
+        }
+
+
 
         public ImageData Mask(ImageData mask)
         {
@@ -1057,7 +873,7 @@ namespace Zuma
 
     public class Track
     {
-        GameInfo _info;
+        GameRes _res;
         Curve _curve;
         Frog _frog;
         Ball[] _balls;
@@ -1077,7 +893,7 @@ namespace Zuma
             };
 
             var pt = _curve[pos];
-            var s = screen.SubImage((UInt16)(pt.X - 16), (UInt16)(pt.Y - 16), 32, 32).Mask(_info.BallMask);
+            var s = screen.SubImage((UInt16)(pt.X - 16), (UInt16)(pt.Y - 16), 32, 32).Mask(_res.BallMask);
 
             var (r, g, b) = s.SumColors();
             var t = r + g + b;
@@ -1103,9 +919,9 @@ namespace Zuma
             return Color.Black;
         }
 
-        public Track(GameInfo info, Curve c, Frog f)
+        public Track(GameRes res, Curve c, Frog f)
         {
-            _info = info;
+            _res = res;
             _curve = c;
             _frog = f;
         }
@@ -1120,7 +936,7 @@ namespace Zuma
                 }
                 else
                 {
-                    var ss = screen.SubImage((UInt16)(pt.X - 16), (UInt16)(pt.Y - 16), 32, 32).Mask(_info.BallMask).Threshold(4, 4, 4);
+                    var ss = screen.SubImage((UInt16)(pt.X - 16), (UInt16)(pt.Y - 16), 32, 32).Mask(_res.BallMask).Threshold(4, 4, 4);
                     return (int)ss.SumPixels() / 3;
                 }
             }).ToArray();
@@ -1323,9 +1139,100 @@ namespace Zuma
         }
     }
 
+    class SceneMatcher
+    {
+        ImageData _image;
+        Point _screenPos;
+
+        public SceneMatcher(string zumaDir, string imageFile, Point imagePos, Size imageSize, Point? screenPos)
+        {
+            if (screenPos.HasValue)
+            {
+                _screenPos = screenPos.Value;
+            }
+            else
+            {
+                _screenPos = imagePos;
+            }
+
+            _image = ImageData.FromFile(Path.Combine(zumaDir, imageFile)).SubImage(new Rectangle(imagePos, imageSize));
+        }
+
+        public SceneMatcher(string imageFile, Point screenPos)
+        {
+            _screenPos = screenPos;
+            _image = ImageData.FromFile(imageFile);
+        }
+
+        public bool Match(ImageData screen, int threshold, Bitmap debug)
+        {
+            var s = screen.SubImage(_screenPos.X, _screenPos.Y, _image.Width, _image.Height);
+            var d = _image.Diff(s);
+
+            using (var g = Graphics.FromImage(debug))
+            {
+                g.DrawImage(d.GetImage(), new Point(0, 0));
+            }
+
+            var ss = d.SumPixels();
+            ss = ss * 100 / (d.Width * d.Height * 3 * 255);
+
+            return ss < threshold;
+        }
+    }
+
+    class MultiSceneMatcher
+    {
+        Dictionary<string, ImageData> _images;
+        string _imageDir;
+        Rectangle _screenRect;
+        Color _pixelThreshold;
+
+        public MultiSceneMatcher(string imageDir, Rectangle screenRect, Color pixelThreshold)
+        {
+            _screenRect = screenRect;
+            _imageDir = imageDir;
+            _pixelThreshold = pixelThreshold;
+            _images = Directory.GetFiles(imageDir, "*.jpg").ToDictionary(x => Path.GetFileNameWithoutExtension(x).ToLower(), x => ImageData.FromFile(x).Threshold(pixelThreshold)); ;
+        }
+
+
+        public string Match(ImageData screen, int threshold)
+        {
+            var t = screen.SubImage(_screenRect);
+            var tt = t.Threshold(_pixelThreshold);
+
+            var ttt = _images.Select(x => (x.Key, x.Value.Diff(tt).SumPixels())).OrderBy(x => x.Item2);
+            foreach(var x in ttt)
+            {
+                System.Diagnostics.Debug.WriteLine("Match: name = {0}, value = {1}", x.Item1, x.Item2);
+            }
+
+            var result = ttt.First();
+            if (result.Item2 < threshold)
+            {
+                return result.Item1;
+            }
+            else
+            {
+                var name = string.Format("unk_{0}", _images.Count);
+                var fname = Path.Combine(_imageDir, name + ".jpg");
+                t.GetImage().Save(fname);
+
+                _images.Add(name, tt);
+                return name;
+            }
+        }
+    }
+
     public class Player
     {
-        private GameInfo _info;
+        private IZumaGame _game;
+        private GameRes _res;
+
+        private Dictionary<string, SceneMatcher> _sceneMatcher;
+        private MultiSceneMatcher _levelMatcher;
+        private MultiSceneMatcher _lifeMatcher;
 
         private void UpdateVisibility(IEnumerable<Ball> all)
         {
@@ -1371,106 +1278,152 @@ namespace Zuma
             }
         }
 
-        private Dictionary<string, ImageData> LoadSubImages(string folder, Byte threshold)
+        private bool IsLoadingScreen(ImageData screen)
         {
-            Directory.CreateDirectory(folder);
-
-            var result = new Dictionary<string, ImageData>();
-            foreach (var f in Directory.GetFiles(folder, "*.jpg", SearchOption.TopDirectoryOnly))
-            {
-                var name = Path.GetFileNameWithoutExtension(f).ToLower();
-                result[name] = ImageData.FromFile(f).GrayScale().Threshold(threshold, threshold, threshold);
-            }
-
-            return result;
+            return _sceneMatcher["loadingscreen"].Match(screen, 5, State);
         }
 
-        private string MatchImage(ImageData target, Dictionary<string, ImageData> candidates, Byte threshold1, UInt32 threshold2, string folder)
+        private bool IsMainMenu(ImageData screen)
         {
-            var ll = candidates.ToArray();
-            var tt = target.GrayScale().Threshold(threshold1, threshold1, threshold1);
-
-            var idx = tt.Match(ll.Select(x => x.Value).ToArray(), threshold2);
-            if (idx != -1)
-            {
-                return ll[idx].Key;
-            }
-            else
-            {
-                var name = string.Format("unk_{0}", ll.Length);
-                var fname = Path.Combine(folder, name + ".jpg");
-                target.GetImage().Save(fname);
-                candidates.Add(name, tt);
-                return name;
-            }
+            return _sceneMatcher["mmscreen"].Match(screen, 5, State);
         }
 
-        private Target[] Process(Bitmap screen)
+        private bool IsContinueDlg(ImageData screen)
+        {
+            return _sceneMatcher["continuedlg"].Match(screen, 5, State);
+        }
+
+        private bool IsAdvMenu(ImageData screen)
+        {
+            return _sceneMatcher["advscreen"].Match(screen, 5, State);
+        }
+
+        private bool IsGetReady(ImageData screen)
+        {
+            return _sceneMatcher["getready"].Match(screen, 5, State);
+        }
+
+        private bool IsLevelFinished(ImageData screen)
+        {
+            return _sceneMatcher["stats"].Match(screen, 5, State);
+        }
+
+        private bool IsStageFinished(ImageData screen)
+        {
+            return _sceneMatcher["stageend"].Match(screen, 5, State);
+        }
+
+        private bool IsGameOver(ImageData screen)
+        {
+            return _sceneMatcher["gameover"].Match(screen, 5, State);
+        }
+
+        private void DetectLevel(ImageData screen)
+        {
+            LevelId = _levelMatcher.Match(screen, 5000);
+        }
+
+        private void DetectLifeCount(ImageData screen)
+        {
+            LifeCount = _lifeMatcher.Match(screen, 5000);
+        }
+
+        private void Process(Bitmap screen)
         {
             var s = ImageData.FromBitmap(screen);
 
-            var levelIdImages = LoadSubImages("level", 32);
-            var lifeCountImages = LoadSubImages("life", 32);
+            State = screen;
 
-            var levelIdImage = s.SubImage(GameInfo.LevelRect);
-            LevelId = MatchImage(levelIdImage, levelIdImages, 32, 5000, "level");
+            if (IsLoadingScreen(s))
+            {
+                _game.Click(GameRes.PlayXY);
+                return;
+            }
 
-            var lifeCountImage = s.SubImage(GameInfo.LifeRect);
-            LifeCount = MatchImage(lifeCountImage, lifeCountImages, 32, 5000, "life");
+            if (IsContinueDlg(s))
+            {
+                _game.Click(GameRes.ContinueXY);
+                return;
+            }
 
-            var state = s.GetImage();
-            var targets = new Target[2];
+            if (IsMainMenu(s))
+            {
+                _game.Click(GameRes.AdvEnterXY);
+                return;
+            }
+
+            if (IsAdvMenu(s))
+            {
+                _game.Click(GameRes.AdvStartXY);
+                return;
+            }
+
+            if (IsGetReady(s))
+            {
+                _game.Click(GameRes.GetReadyXY);
+                return;
+            }
+
+            if (IsGameOver(s))
+            {
+                _game.Click(GameRes.GameOverXY);
+                return;
+            }
+
+            if (IsLevelFinished(s))
+            {
+                _game.Click(GameRes.StatsXY);
+                return;
+            }
+
+            if (IsStageFinished(s))
+            {
+                _game.Click(GameRes.StageEndXY);
+                return;
+            }
+
+            DetectLevel(s);
+            DetectLifeCount(s);
 
             var level = Level.FromId(LevelId);
             if (level == null)
             {
-                State = state;
-                return targets;
+                return;
             }
 
             var f = new Frog(level.FrogXY);
-            f.Process(s);
 
-            if (!f.Ready)
+            using (var g = Graphics.FromImage(State))
             {
-                State = state;
-                return targets;
+                f.Process(s);
+
+                if (!f.Ready)
+                {
+                    f.Draw(g);
+                    return;
+                }
             }
 
-            var r = s.Diff(level.Background, 80);
+            State = Play(s, level, f);
+        }
+
+        private Bitmap Play(ImageData s, Level lvl, Frog f)
+        {
+            var r = s.Diff(lvl.Background, 80);
 
             Ball.LastID = 0;
             var tracks = new List<Track>();
 
-            foreach (var c in level.Curves)
+            foreach (var c in lvl.Curves)
             {
-                var t = new Track(_info, c, f);
+                var t = new Track(_res, c, f);
                 t.Process(r);
                 tracks.Add(t);
             }
 
             UpdateVisibility(tracks.SelectMany(x => x.Balls));
 
-            if (f.First == f.Next)
-            {
-                var rs = tracks.SelectMany(x => x.FindTargets(f.First)).OrderByDescending(x => x.Score).Take(2).ToArray();
-
-                if (rs.Length > 0)
-                {
-                    targets[0] = rs[0];
-                    if (rs.Length > 1)
-                    {
-                        targets[1] = rs[1];
-                    }
-                }
-            }
-            else
-            {
-                targets[0] = tracks.SelectMany(x => x.FindTargets(f.First)).OrderByDescending(x => x.Score).FirstOrDefault();
-                targets[1] = tracks.SelectMany(x => x.FindTargets(f.Next)).OrderByDescending(x => x.Score).FirstOrDefault();
-            }
-
-            state = r.GetImage();
+            var state = r.GetImage();
             using (var g = Graphics.FromImage(state))
             {
                 f.Draw(g);
@@ -1480,23 +1433,71 @@ namespace Zuma
                     t.Draw(g);
                 }
 
-                foreach (var t in targets)
+                if (f.First == f.Next)
                 {
-                    if (t != null)
+                    var rs = tracks.SelectMany(x => x.FindTargets(f.First)).OrderByDescending(x => x.Score).Take(2).ToArray();
+
+                    foreach (var t in rs)
                     {
                         t.Draw(g);
+                        _game.ShootBall(new Point(t.XY.X, t.XY.Y));
+                    }
+                }
+                else
+                {
+
+                    var t0 = tracks.SelectMany(x => x.FindTargets(f.First)).OrderByDescending(x => x.Score).FirstOrDefault();
+                    if (t0 != null)
+                    {
+                        t0.Draw(g);
+
+                        _game.ShootBall(new Point(t0.XY.X, t0.XY.Y));
+                    }
+
+                    var t1 = tracks.SelectMany(x => x.FindTargets(f.Next)).OrderByDescending(x => x.Score).FirstOrDefault();
+                    if (t1 != null)
+                    {
+                        t1.Draw(g);
+
+                        if (t0 == null)
+                        {
+                            _game.SwapBall();
+                        }
+
+                        _game.ShootBall(new Point(t1.XY.X, t1.XY.Y));
                     }
                 }
             }
 
-            State = state;
-
-            return targets;
+            return state;
         }
 
-        public Player(GameInfo info)
+        private void OnScreenChanged(Bitmap screen)
         {
-            _info = info;
+            Process(screen);
+        }
+
+        public Player(IZumaGame game)
+        {
+            _game = game;
+            _res = new GameRes(_game.GameDir);
+
+            _sceneMatcher = new Dictionary<string, SceneMatcher>()
+            {
+                {"loadingscreen", new SceneMatcher(_game.GameDir, "images\\loadingscreen.jpg", new Point(180, 400), new Size(300, 30), null) },
+                {"mmscreen", new SceneMatcher(_game.GameDir, "images\\mmscreen.jpg", new Point(0, 200), new Size(100, 100), null) },
+                {"stageend", new SceneMatcher("scenes\\stageend.jpg", new Point(176, 43)) },
+                {"continuedlg", new SceneMatcher("scenes\\continuedlg.jpg", new Point(202, 102)) },
+                {"advscreen", new SceneMatcher("scenes\\advscreen.jpg", new Point(515, 299)) },
+                {"getready", new SceneMatcher("scenes\\getready.jpg", new Point(211, 104)) },
+                {"gameover", new SceneMatcher("scenes\\gameover.jpg", new Point(217, 141)) },
+                {"stats", new SceneMatcher("scenes\\stats.jpg", new Point(217, 141)) }
+            };
+
+            _levelMatcher = new MultiSceneMatcher("level", GameRes.LevelRect, Color.FromArgb(200, 200, 255));
+            _lifeMatcher = new MultiSceneMatcher("life", GameRes.LifeRect, Color.FromArgb(200, 80, 255));
+
+            _game.ScreenChanged += OnScreenChanged;
         }
 
         public string LevelId
@@ -1515,43 +1516,6 @@ namespace Zuma
         {
             get;
             private set;
-        }
-
-
-        public void Play(PictureBox result)
-        {
-            if (Game.Active)
-            {
-                var targets = Process(Game.Screenshot);
-
-                result.Image = this.State;
-                result.Refresh();
-
-                if (targets[0] != null)
-                {
-                    Game.Shoot(targets[0].XY.X, targets[0].XY.Y);
-
-                    if (targets[1] != null)
-                    {
-                        Game.Shoot(targets[1].XY.X, targets[1].XY.Y);
-                    }
-                }
-                else
-                {
-                    if (targets[1] != null)
-                    {
-                        Game.Swap();
-                        Game.Shoot(targets[1].XY.X, targets[1].XY.Y);
-                    }
-                }
-            }
-        }
-
-        public void Simulate(PictureBox result, Bitmap screenshot)
-        {
-            var targets = Process(screenshot);
-            result.Image = this.State;
-            result.Refresh();
         }
     }
 }
